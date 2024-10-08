@@ -5,7 +5,7 @@
 
 import idaapi
 from idc import *
-from ida_search import find_text
+from ida_search import find_text, SEARCH_CASE, SEARCH_DOWN
 
 idaapi.require("utils")
 idaapi.require("msvc")

@@ -1,5 +1,39 @@
-from idaapi import get_struc_id, BADADDR, del_struc, get_struc, add_struc, add_struc_member, FF_DATA, FF_DWORD, FF_0OFF, get_struc_size, FF_STRLIT, del_items, DELIT_DELNAMES, create_struct, get_member_by_name, get_32bit, get_strlit_contents, demangle_name, create_dword, op_offset
+#from idaapi import get_struc_id, BADADDR, del_struc, get_struc, add_struc, add_struc_member, FF_DATA, FF_DWORD, FF_0OFF, get_struc_size, FF_STRLIT, del_items, DELIT_DELNAMES, create_struct, get_member_by_name, get_32bit, get_strlit_contents, demangle_name, create_dword, op_offset
+from idaapi import BADADDR, FF_DATA, FF_DWORD, FF_0OFF, FF_STRLIT, del_items, DELIT_DELNAMES, create_struct, get_32bit, get_strlit_contents, demangle_name, create_dword, op_offset
 from idc import *
+
+try:
+    from idaapi import get_struc_id, del_struc, add_struc, add_struc_member, get_struc_size
+except ImportError:
+    # from IDA 9.0, they are in idc.
+    pass
+
+try:
+    from idaapi import get_member_by_name
+except ImportError:
+    # for IDA 9.0
+    def get_member_by_name(tif, name):
+        if not tif.is_struct():
+            return None
+    
+        udm = ida_typeinf.udm_t()
+        udm.name = name
+        idx = tif.find_udm(udm, ida_typeinf.STRMEM_NAME)
+        if idx != -1:
+            return udm
+        return None
+
+try:
+    from idaapi import get_struc
+except ImportError:
+    # for IDA 9.0
+    def get_struc(struct_tid):
+        tif = ida_typeinf.tinfo_t()
+        if tif.get_type_by_tid(struct_tid):
+            if tif.is_struct():
+                return tif
+        return ida_idapi.BADADDR
+
 from utils import utils
 u = utils()
 
@@ -42,13 +76,19 @@ class RTTICompleteObjectLocator(RTTIStruc):
         if ida_bytes.create_struct(ea, self.size, self.tid):
             # Get adress of type descriptor from CompleteLocator
             print("Complete Object Locator at: 0x%x" % ea)
-            offset = get_member_by_name(self.struc, "pTypeDescriptor").soff
+            try:
+                offset = get_member_by_name(self.struc, "pTypeDescriptor").soff
+            except AttributeError:
+                offset = get_member_by_name(self.struc, "pTypeDescriptor").offset // 8
             typeDescriptor = get_32bit(ea+offset) + u.x64_imagebase()
             print("Looking for type Descriptor at: 0x%x" % typeDescriptor)
             rtd = RTTITypeDescriptor(typeDescriptor)
             if rtd.class_name:
                 print("Type Descriptor at: 0x%x" % typeDescriptor)
-                offset = get_member_by_name(self.struc, "pClassDescriptor").soff
+                try:
+                    offset = get_member_by_name(self.struc, "pClassDescriptor").soff
+                except AttributeError:
+                    offset = get_member_by_name(self.struc, "pClassDescriptor").offset // 8
                 classHierarchyDes = get_32bit(ea+offset) + u.x64_imagebase()
                 rchd = RTTIClassHierarchyDescriptor(classHierarchyDes)
                 # filter out None entries
@@ -76,7 +116,10 @@ class RTTITypeDescriptor(RTTIStruc):
     print("Completed Registering RTTITypeDescriptor")
 
     def __init__(self, ea):
-        name = ea + get_member_by_name(get_struc(self.tid), "name").soff
+        try:
+            name = ea + get_member_by_name(get_struc(self.tid), "name").soff
+        except AttributeError:
+            name = ea + get_member_by_name(get_struc(self.tid), "name").offset // 8
         strlen = u.get_strlen(name)
         if strlen is None:
             # not a real vtable
@@ -117,8 +160,14 @@ class RTTIClassHierarchyDescriptor(RTTIStruc):
         print("Processing Class Hierarchy Descriptor at 0x%x" % ea)
         del_items(ea, DELIT_DELNAMES, get_struc_size(self.tid))
         if ida_bytes.create_struct(ea, get_struc_size(self.tid), self.tid):
-            baseClasses = get_32bit(ea+get_member_by_name(get_struc(self.tid), "pBaseClassArray").soff) + u.x64_imagebase()
-            nb_classes = get_32bit(ea+get_member_by_name(get_struc(self.tid), "numBaseClasses").soff)
+            try:
+                baseClasses = get_32bit(ea+get_member_by_name(get_struc(self.tid), "pBaseClassArray").soff) + u.x64_imagebase()
+            except AttributeError:
+                baseClasses = get_32bit(ea+get_member_by_name(get_struc(self.tid), "pBaseClassArray").offset // 8) + u.x64_imagebase()
+            try:
+                nb_classes = get_32bit(ea+get_member_by_name(get_struc(self.tid), "numBaseClasses").soff)
+            except AttributeError:
+                nb_classes = get_32bit(ea+get_member_by_name(get_struc(self.tid), "numBaseClasses").offset // 8)
             print("Baseclasses array at 0x%x" % baseClasses)
             # Skip the first base class as it is itself (could check)
             self.bases = []
